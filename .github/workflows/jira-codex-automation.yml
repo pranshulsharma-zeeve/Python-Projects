@@ -17,9 +17,9 @@ jobs:
   jira-automation:
     runs-on: ubuntu-latest
     env:
-      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      JIRA_BASE_URL: "https://zeeve.atlassian.net/"
+      JIRA_USER_EMAIL: "pranshul.sharma@zeeve.io"
+      JIRA_API_TOKEN: "__n8n_BLANK_VALUE_e5362baf-c777-4d57-a609-6eaf1f9e87f6"
       JIRA_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_REVIEW_TRANSITION_ID }}
       JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
       PR_TITLE: ${{ github.event.pull_request.title }}
