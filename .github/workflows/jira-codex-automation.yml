@@ -1,0 +1,116 @@
+name: Jira automation from Codex
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - closed
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  jira-automation:
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: "https://zeeve.atlassian.net/"
+      JIRA_USER_EMAIL: "pranshul.sharma@zeeve.io"
+      JIRA_API_TOKEN: "__n8n_BLANK_VALUE_e5362baf-c777-4d57-a609-6eaf1f9e87f6"
+      JIRA_REVIEW_TRANSITION_ID: ${{ secrets.JIRA_REVIEW_TRANSITION_ID }}
+      JIRA_DONE_TRANSITION_ID: ${{ secrets.JIRA_DONE_TRANSITION_ID }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_ACTION: ${{ github.event.action }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      REPOSITORY: ${{ github.repository }}
+      ACTOR: ${{ github.actor }}
+    steps:
+      - name: Validate Jira secrets
+        run: |
+          set -euo pipefail
+          for key in JIRA_BASE_URL JIRA_USER_EMAIL JIRA_API_TOKEN; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required secret: $key" >&2
+              exit 1
+            fi
+          done
+
+      - name: Extract Jira issue key
+        id: jira
+        shell: bash
+        run: |
+          set -euo pipefail
+          text="$PR_TITLE $PR_BRANCH"
+          issue_key=$(printf '%s\n' "$text" | grep -Eio '[A-Z][A-Z0-9]+-[0-9]+' | head -n 1 | tr '[:lower:]' '[:upper:]' || true)
+
+          if [ -z "$issue_key" ]; then
+            echo "No Jira issue key found in PR title or branch name."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$PR_ACTION" == "closed" && "$PR_MERGED" == "true" ]]; then
+            transition_id="$JIRA_DONE_TRANSITION_ID"
+            lifecycle_state="merged"
+          else
+            transition_id="$JIRA_REVIEW_TRANSITION_ID"
+            lifecycle_state="review"
+          fi
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "issue_key=$issue_key" >> "$GITHUB_OUTPUT"
+          echo "transition_id=$transition_id" >> "$GITHUB_OUTPUT"
+          echo "lifecycle_state=$lifecycle_state" >> "$GITHUB_OUTPUT"
+
+      - name: Add Jira comment with Codex PR details
+        if: steps.jira.outputs.found == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          issue_key='${{ steps.jira.outputs.issue_key }}'
+          state='${{ steps.jira.outputs.lifecycle_state }}'
+
+          if [ "$state" = "merged" ]; then
+            summary="Codex pull request merged"
+            detail="PR #$PR_NUMBER was merged by $ACTOR in $REPOSITORY: $PR_URL"
+          else
+            summary="Codex pull request ready for review"
+            detail="PR #$PR_NUMBER is active after '$PR_ACTION' by $ACTOR in $REPOSITORY: $PR_URL"
+          fi
+
+          payload=$(jq -n --arg body "[$summary] $detail" '{body: $body}')
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "$JIRA_BASE_URL/rest/api/3/issue/$issue_key/comment" \
+            --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --data "$payload"
+
+      - name: Transition Jira issue
+        if: steps.jira.outputs.found == 'true' && steps.jira.outputs.transition_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          issue_key='${{ steps.jira.outputs.issue_key }}'
+          transition_id='${{ steps.jira.outputs.transition_id }}'
+          payload=$(jq -n --arg id "$transition_id" '{transition: {id: $id}}')
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "$JIRA_BASE_URL/rest/api/3/issue/$issue_key/transitions" \
+            --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --data "$payload"
+
+      - name: Skip transition when transition id is not configured
+        if: steps.jira.outputs.found == 'true' && steps.jira.outputs.transition_id == ''
+        run: echo "No Jira transition id configured for this event; comment was still posted."
