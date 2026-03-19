@@ -17,9 +17,18 @@ jobs:
       contents: write
       pull-requests: write
 
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
+
+      - name: Show working tree before Codex
+        run: |
+          pwd
+          ls -la
+          git status
 
       - name: Run Codex
         id: run_codex
@@ -27,18 +36,37 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
-            Task: ${{ github.event.inputs.task_description }}
+            You are working in an existing GitHub repository.
 
             Jira key: ${{ github.event.inputs.jira_key }}
+            Task: ${{ github.event.inputs.task_description }}
 
-            Requirements:
-            - Implement the requested change
-            - Add or update unit tests
-            - Keep changes minimal
-            - Follow the existing project structure
-            - Summarize what changed
+            Make a very small safe change in this repository.
+            Prefer changing one file only.
+            Add or update a minimal test only if the repo already has tests.
+            At the end, summarize exactly what you changed.
+
+          output-file: codex-output.md
           sandbox: workspace-write
           safety-strategy: drop-sudo
+          codex-args: '["--full-auto"]'
+
+      - name: Show Codex output file
+        if: always()
+        run: |
+          echo "=== codex-output.md ==="
+          if [ -f codex-output.md ]; then
+            cat codex-output.md
+          else
+            echo "codex-output.md not found"
+          fi
+
+      - name: Show git diff after Codex
+        if: always()
+        run: |
+          git status
+          git diff --stat
+          git diff
 
       - name: Create branch and commit changes
         run: |
