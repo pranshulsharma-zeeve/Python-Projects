@@ -39,8 +39,13 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
-            Add one short line to README.md mentioning this repo is being tested with Codex.
-            Keep the change minimal and summarize what changed.
+            Jira issue: ${{ github.event.inputs.jira_key }}
+            Task:
+            ${{ github.event.inputs.task_description }}
+          
+            Make the requested code changes.
+            Keep the change focused and minimal.
+            Then summarize what changed.
           output-file: codex-output.md
           sandbox: workspace-write
           safety-strategy: drop-sudo
